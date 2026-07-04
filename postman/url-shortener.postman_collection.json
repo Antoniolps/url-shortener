@@ -1,0 +1,343 @@
+{
+  "info": {
+    "name": "URL Shortener",
+    "description": "Encurtador de URL — POST /urls, GET /:shortCode (redirect cache-aside) e GET /urls/:shortCode/stats. Ver README.md do projeto para contratos e trade-offs.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "url-shortener"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000", "type": "string" },
+    { "key": "shortCode", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Criar URL curta",
+      "item": [
+        {
+          "name": "Criar URL válida (201)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test('retorna shortCode, shortUrl e longUrl', () => {",
+                  "  pm.expect(body).to.have.property('shortCode');",
+                  "  pm.expect(body).to.have.property('shortUrl');",
+                  "  pm.expect(body.longUrl).to.eql(pm.collectionVariables.get('lastLongUrl'));",
+                  "});",
+                  "pm.collectionVariables.set('shortCode', body.shortCode);",
+                  "console.log('shortCode criado:', body.shortCode);"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('lastLongUrl', 'https://www.anthropic.com/claude');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"longUrl\": \"https://www.anthropic.com/claude\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/urls",
+              "host": ["{{baseUrl}}"],
+              "path": ["urls"]
+            },
+            "description": "Cria uma URL curta. shortCode é salvo em uma variável de coleção para as próximas requisições."
+          },
+          "response": []
+        },
+        {
+          "name": "Criar URL com expiresAt no futuro (201)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"longUrl\": \"https://www.anthropic.com/claude\",\n  \"expiresAt\": \"2027-12-31T23:59:59.000Z\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/urls",
+              "host": ["{{baseUrl}}"],
+              "path": ["urls"]
+            },
+            "description": "Cria uma URL curta com data de expiração opcional."
+          },
+          "response": []
+        },
+        {
+          "name": "Criar URL com expiresAt no passado, já expirando (201, útil pra depois testar 410)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set('expiredShortCode', body.shortCode);",
+                  "console.log('shortCode expirado criado:', body.shortCode);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"longUrl\": \"https://www.anthropic.com/claude\",\n  \"expiresAt\": \"2020-01-01T00:00:00.000Z\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/urls",
+              "host": ["{{baseUrl}}"],
+              "path": ["urls"]
+            },
+            "description": "A API permite criar com expiresAt já no passado (não valida isso na criação). Use o shortCode retornado para testar o 410 no redirect."
+          },
+          "response": []
+        },
+        {
+          "name": "Criar URL inválida (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test('formato padrão de erro', () => {",
+                  "  pm.expect(body.statusCode).to.eql(400);",
+                  "  pm.expect(body.code).to.eql('VALIDATION_ERROR');",
+                  "  pm.expect(body).to.have.property('message');",
+                  "  pm.expect(body).to.have.property('timestamp');",
+                  "  pm.expect(body).to.have.property('path');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"longUrl\": \"nao-e-uma-url\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/urls",
+              "host": ["{{baseUrl}}"],
+              "path": ["urls"]
+            },
+            "description": "longUrl sem protocolo http/https válido dispara o ValidationPipe global (400 VALIDATION_ERROR)."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Redirect",
+      "item": [
+        {
+          "name": "GET /:shortCode existente (302)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 302', () => pm.response.to.have.status(302));",
+                  "pm.test('tem header Location', () => {",
+                  "  pm.expect(pm.response.headers.has('Location')).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/{{shortCode}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{shortCode}}"]
+            },
+            "description": "Redireciona (302) para a longUrl. Rode 'Criar URL válida' antes para popular {{shortCode}}. Desative 'Automatically follow redirects' nas configurações da requisição/coleção para ver o 302 puro."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /:shortCode inexistente (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 404', () => pm.response.to.have.status(404));",
+                  "const body = pm.response.json();",
+                  "pm.test('code URL_NOT_FOUND', () => pm.expect(body.code).to.eql('URL_NOT_FOUND'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/codigo-que-nao-existe",
+              "host": ["{{baseUrl}}"],
+              "path": ["codigo-que-nao-existe"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GET /:shortCode expirado (410)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 410', () => pm.response.to.have.status(410));",
+                  "const body = pm.response.json();",
+                  "pm.test('code URL_EXPIRED', () => pm.expect(body.code).to.eql('URL_EXPIRED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/{{expiredShortCode}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{expiredShortCode}}"]
+            },
+            "description": "Rode 'Criar URL com expiresAt no passado' antes para popular {{expiredShortCode}}."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Stats",
+      "item": [
+        {
+          "name": "GET /urls/:shortCode/stats existente (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('formato de stats', () => {",
+                  "  pm.expect(body).to.have.property('shortCode');",
+                  "  pm.expect(body).to.have.property('longUrl');",
+                  "  pm.expect(body).to.have.property('clickCount');",
+                  "  pm.expect(body).to.have.property('createdAt');",
+                  "  pm.expect(body).to.have.property('expiresAt');",
+                  "});",
+                  "console.log('clickCount atual:', body.clickCount);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/urls/{{shortCode}}/stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["urls", "{{shortCode}}", "stats"]
+            },
+            "description": "clickCount é atualizado de forma assíncrona pelo worker — rode 'GET /:shortCode existente' antes e aguarde alguns instantes para ver o contador subir."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /urls/:shortCode/stats inexistente (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 404', () => pm.response.to.have.status(404));",
+                  "const body = pm.response.json();",
+                  "pm.test('code URL_NOT_FOUND', () => pm.expect(body.code).to.eql('URL_NOT_FOUND'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/urls/codigo-que-nao-existe/stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["urls", "codigo-que-nao-existe", "stats"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Rate limiting",
+      "item": [
+        {
+          "name": "POST /urls x11 (Runner: 11 iterações, 0ms delay -> última deve dar 429)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Rode esta requisição com o Collection Runner: 11 iterações, delay 0.",
+                  "// As 10 primeiras devem retornar 201; a partir da 11ª, dentro do",
+                  "// mesmo minuto e do mesmo IP, a resposta deve ser 429.",
+                  "pm.test('201 ou 429 (rate limit de 10 req/min por IP)', () => {",
+                  "  pm.expect([201, 429]).to.include(pm.response.code);",
+                  "});",
+                  "if (pm.response.code === 429) {",
+                  "  const body = pm.response.json();",
+                  "  pm.test('429 tem code RATE_LIMIT_EXCEEDED', () => {",
+                  "    pm.expect(body.code).to.eql('RATE_LIMIT_EXCEEDED');",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"longUrl\": \"https://exemplo.com/rate-limit-test\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/urls",
+              "host": ["{{baseUrl}}"],
+              "path": ["urls"]
+            },
+            "description": "Use o Collection Runner (ou Postman Runtime/Newman) rodando só esta requisição 11 vezes seguidas, delay 0, para observar o 429 na 11ª chamada. Ver RNF04 no README."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
