@@ -1,0 +1,20 @@
+# dependencies
+/node_modules
+
+# build
+/dist
+
+# environment
+.env
+
+# tests
+/coverage
+
+# IDE / OS
+.idea
+.vscode
+*.log
+Thumbs.db
+
+# Prisma client gerado
+/src/generated
