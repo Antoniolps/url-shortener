@@ -1,7 +1,7 @@
 # Spec: Encurtador de URL
 
 ## Status
-Draft
+Implemented
 
 ## Contexto e motivação
 
