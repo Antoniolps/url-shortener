@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { InvalidUrlException } from '../common/exceptions/invalid-url.exception';
+import { UrlNotFoundException } from '../common/exceptions/url-not-found.exception';
 import { PrismaService } from '../prisma/prisma.service';
 import { UrlService } from './url.service';
 
@@ -7,7 +8,7 @@ describe('UrlService', () => {
   let service: UrlService;
   let prismaMock: {
     $queryRaw: jest.Mock;
-    url: { create: jest.Mock };
+    url: { create: jest.Mock; findUnique: jest.Mock };
   };
 
   beforeEach(() => {
@@ -22,6 +23,7 @@ describe('UrlService', () => {
             expiresAt: data.expiresAt ?? null,
           }),
         ),
+        findUnique: jest.fn().mockResolvedValue(null),
       },
     };
     const configService = {
@@ -67,5 +69,31 @@ describe('UrlService', () => {
     await expect(
       service.create({ longUrl: 'ftp://exemplo.com/arquivo' }),
     ).rejects.toThrow(InvalidUrlException);
+  });
+
+  it('getStats retorna metadados com clickCount numérico', async () => {
+    const createdAt = new Date('2026-07-01T00:00:00Z');
+    prismaMock.url.findUnique.mockResolvedValue({
+      id: 125n,
+      shortCode: '21',
+      longUrl: 'https://exemplo.com',
+      clickCount: 7n,
+      createdAt,
+      expiresAt: null,
+    });
+
+    await expect(service.getStats('21')).resolves.toEqual({
+      shortCode: '21',
+      longUrl: 'https://exemplo.com',
+      clickCount: 7,
+      createdAt,
+      expiresAt: null,
+    });
+  });
+
+  it('getStats lança UrlNotFoundException para código inexistente', async () => {
+    await expect(service.getStats('naoexiste')).rejects.toThrow(
+      UrlNotFoundException,
+    );
   });
 });

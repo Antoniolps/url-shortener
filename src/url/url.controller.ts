@@ -1,6 +1,7 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { CreateUrlDto } from './dto/create-url.dto';
 import { UrlResponseDto } from './dto/url-response.dto';
+import { UrlStatsResponseDto } from './dto/url-stats-response.dto';
 import { UrlService } from './url.service';
 
 @Controller('urls')
@@ -10,5 +11,12 @@ export class UrlController {
   @Post()
   async create(@Body() dto: CreateUrlDto): Promise<UrlResponseDto> {
     return this.urlService.create(dto);
+  }
+
+  @Get(':shortCode/stats')
+  async stats(
+    @Param('shortCode') shortCode: string,
+  ): Promise<UrlStatsResponseDto> {
+    return this.urlService.getStats(shortCode);
   }
 }

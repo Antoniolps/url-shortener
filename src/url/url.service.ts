@@ -2,9 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { encodeBase62 } from '../common/base62';
 import { InvalidUrlException } from '../common/exceptions/invalid-url.exception';
+import { UrlNotFoundException } from '../common/exceptions/url-not-found.exception';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUrlDto } from './dto/create-url.dto';
 import { UrlResponseDto } from './dto/url-response.dto';
+import { UrlStatsResponseDto } from './dto/url-stats-response.dto';
 
 @Injectable()
 export class UrlService {
@@ -42,6 +44,21 @@ export class UrlService {
       shortCode: url.shortCode,
       shortUrl: `${this.baseUrl}/${url.shortCode}`,
       longUrl: url.longUrl,
+      expiresAt: url.expiresAt,
+    };
+  }
+
+  async getStats(shortCode: string): Promise<UrlStatsResponseDto> {
+    const url = await this.prisma.url.findUnique({ where: { shortCode } });
+    if (!url) {
+      throw new UrlNotFoundException(shortCode);
+    }
+
+    return {
+      shortCode: url.shortCode,
+      longUrl: url.longUrl,
+      clickCount: Number(url.clickCount),
+      createdAt: url.createdAt,
       expiresAt: url.expiresAt,
     };
   }
