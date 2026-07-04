@@ -1,6 +1,10 @@
 import { UrlExpiredException } from '../common/exceptions/url-expired.exception';
 import { UrlNotFoundException } from '../common/exceptions/url-not-found.exception';
 import { PrismaService } from '../prisma/prisma.service';
+import { RabbitMQPublisherService } from '../rabbitmq/rabbitmq-publisher.service';
+import {
+  CLICK_REGISTERED_ROUTING_KEY,
+} from '../rabbitmq/rabbitmq.constants';
 import { RedisService } from '../redis/redis.service';
 import {
   CACHE_KEY_PREFIX,
@@ -12,6 +16,7 @@ describe('RedirectService', () => {
   let service: RedirectService;
   let redisMock: { get: jest.Mock; set: jest.Mock };
   let prismaMock: { url: { findUnique: jest.Mock } };
+  let publisherMock: { publish: jest.Mock };
 
   const urlRow = (overrides: Partial<Record<string, unknown>> = {}) => ({
     id: 1n,
@@ -29,9 +34,11 @@ describe('RedirectService', () => {
       set: jest.fn().mockResolvedValue('OK'),
     };
     prismaMock = { url: { findUnique: jest.fn().mockResolvedValue(null) } };
+    publisherMock = { publish: jest.fn().mockResolvedValue(true) };
     service = new RedirectService(
       prismaMock as unknown as PrismaService,
       redisMock as unknown as RedisService,
+      publisherMock as unknown as RabbitMQPublisherService,
     );
   });
 
@@ -99,6 +106,55 @@ describe('RedirectService', () => {
   it('falha do Redis no SET não impede a resposta (fail-open)', async () => {
     prismaMock.url.findUnique.mockResolvedValue(urlRow());
     redisMock.set.mockRejectedValue(new Error('connection refused'));
+
+    await expect(service.resolve('aZ3kQ1')).resolves.toBe(
+      'https://exemplo.com',
+    );
+  });
+
+  it('redirect bem-sucedido publica exatamente um evento com o payload padrão', async () => {
+    prismaMock.url.findUnique.mockResolvedValue(urlRow());
+
+    await service.resolve('aZ3kQ1');
+
+    expect(publisherMock.publish).toHaveBeenCalledTimes(1);
+    expect(publisherMock.publish).toHaveBeenCalledWith(
+      CLICK_REGISTERED_ROUTING_KEY,
+      expect.objectContaining({
+        version: 1,
+        type: 'click.registered',
+        occurredAt: expect.any(String),
+        data: { shortCode: 'aZ3kQ1' },
+      }),
+    );
+  });
+
+  it('cache hit também publica o evento de clique', async () => {
+    redisMock.get.mockResolvedValue('https://exemplo.com');
+
+    await service.resolve('aZ3kQ1');
+
+    expect(publisherMock.publish).toHaveBeenCalledTimes(1);
+  });
+
+  it('404 e 410 não publicam evento de clique', async () => {
+    await expect(service.resolve('naoexiste')).rejects.toThrow(
+      UrlNotFoundException,
+    );
+
+    prismaMock.url.findUnique.mockResolvedValue(
+      urlRow({ expiresAt: new Date(Date.now() - 1000) }),
+    );
+    await expect(service.resolve('aZ3kQ1')).rejects.toThrow(
+      UrlExpiredException,
+    );
+
+    expect(publisherMock.publish).not.toHaveBeenCalled();
+  });
+
+  it('falha do publisher não propaga para o redirect (fire-and-forget)', async () => {
+    prismaMock.url.findUnique.mockResolvedValue(urlRow());
+    publisherMock.publish.mockRejectedValue(new Error('broker indisponível'));
 
     await expect(service.resolve('aZ3kQ1')).resolves.toBe(
       'https://exemplo.com',

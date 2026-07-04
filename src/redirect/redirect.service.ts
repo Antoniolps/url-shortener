@@ -2,6 +2,13 @@ import { Injectable, Logger } from '@nestjs/common';
 import { UrlExpiredException } from '../common/exceptions/url-expired.exception';
 import { UrlNotFoundException } from '../common/exceptions/url-not-found.exception';
 import { PrismaService } from '../prisma/prisma.service';
+import { ClickRegisteredEvent } from '../rabbitmq/events/click-registered.event';
+import { RabbitMQPublisherService } from '../rabbitmq/rabbitmq-publisher.service';
+import {
+  CLICK_REGISTERED_EVENT_TYPE,
+  CLICK_REGISTERED_EVENT_VERSION,
+  CLICK_REGISTERED_ROUTING_KEY,
+} from '../rabbitmq/rabbitmq.constants';
 import { RedisService } from '../redis/redis.service';
 
 export const CACHE_KEY_PREFIX = 'url:';
@@ -14,6 +21,7 @@ export class RedirectService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly publisher: RabbitMQPublisherService,
   ) {}
 
   async resolve(shortCode: string): Promise<string> {
@@ -23,6 +31,7 @@ export class RedirectService {
     try {
       const cached = await this.redis.get(cacheKey);
       if (cached !== null) {
+        this.registerClick(shortCode);
         return cached;
       }
     } catch (error) {
@@ -54,7 +63,25 @@ export class RedirectService {
       }
     }
 
+    this.registerClick(shortCode);
     return url.longUrl;
+  }
+
+  /**
+   * Fire-and-forget: nunca aguarda a publicação nem propaga falha — perda
+   * ocasional de evento de clique é degradação aceitável (RF03).
+   */
+  private registerClick(shortCode: string): void {
+    const event: ClickRegisteredEvent = {
+      version: CLICK_REGISTERED_EVENT_VERSION,
+      type: CLICK_REGISTERED_EVENT_TYPE,
+      occurredAt: new Date().toISOString(),
+      data: { shortCode },
+    };
+
+    this.publisher.publish(CLICK_REGISTERED_ROUTING_KEY, event).catch((error: Error) => {
+      this.logger.warn(`Falha ao publicar clique de ${shortCode}: ${error.message}`);
+    });
   }
 
   private ttlFor(expiresAt: Date | null, now: Date): number {
