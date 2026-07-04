@@ -5,6 +5,7 @@ import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
 import { RabbitMQModule } from './rabbitmq/rabbitmq.module';
 import { RedisModule } from './redis/redis.module';
+import { UrlModule } from './url/url.module';
 
 @Module({
   imports: [
@@ -12,6 +13,7 @@ import { RedisModule } from './redis/redis.module';
     PrismaModule,
     RedisModule,
     RabbitMQModule,
+    UrlModule,
   ],
   controllers: [AppController],
   providers: [AppService],
