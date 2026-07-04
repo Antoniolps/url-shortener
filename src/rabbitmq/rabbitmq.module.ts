@@ -20,6 +20,8 @@ import { RabbitMQPublisherService } from './rabbitmq-publisher.service';
     }),
   ],
   providers: [RabbitMQPublisherService],
-  exports: [RabbitMQPublisherService],
+  // Reexporta o módulo do golevelup para AmqpConnection ficar injetável
+  // em consumers (ex: ClickWorkerService).
+  exports: [RabbitMQPublisherService, GolevelupRabbitMQModule],
 })
 export class RabbitMQModule {}
